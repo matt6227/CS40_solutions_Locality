@@ -1,0 +1,101 @@
+Array rotation
+As with ppmtrans, array rotation is parametric in a method suite. Each function takes an array, a map function, and a method suite as arguments, and returns a new array as result. A critical observation is that the array transformations make sense regardless of element type; everything is done using the copy_in method, so we can rotate 2-dimensional arrays carrying any type whatever.
+
+<arotate.h>=
+#include "a2methods.h"
+
+#define A2 A2Methods_UArray2
+#define Mapfun A2Methods_mapfun
+<declarations of rotation functions>
+#undef A2
+#undef Mapfun
+<declarations of rotation functions>= (<-U)
+A2 rotate_cw (A2Methods_T m, A2 a, Mapfun map); /* clockwise 90 degrees */
+A2 rotate_ccw(A2Methods_T m, A2 a, Mapfun map); /* counterclockwise 90  */
+A2 rotate_180(A2Methods_T m, A2 a, Mapfun map); /* 180 degrees          */
+The implementation uses map and apply functions quite heavily. My idea is to use map for everything, and each call to apply copies one element from the original array to the correct position in the new array. Various rotations are handled by moving source elements to different positions in the target array. Some care must be taken to know which transformations change the aspect ratio by swapping width and height.
+
+Each mapping function uses the same closure, which gives the dimensions of the original array, the elements of the new array, and the copy_in method.
+
+<arotate.c>= [D->]
+#include <assert.h>
+#include <string.h>
+
+#include "arotate.h"
+
+typedef A2Methods_UArray2 A2;
+typedef A2Methods_mapfun Mapfun;
+
+struct cl {
+        unsigned w, h;     /* height width of *original* array */
+        A2 array;          /* elements of *new* array          */
+        unsigned size;     /* number of bytes in one element;  */
+        A2Methods_Object *(*at)(A2 array2, int i, int j);
+};
+Here are the three movement functions:
+
+<arotate.c>+= [<-D->]
+static void move_element_cw(int i, int j, A2 old, void *elem, void *cl)
+{
+        (void)old;
+        struct cl *new = cl;
+        memcpy(new->at(new->array, new->h - j - 1, i), 
+               elem, 
+               new->size);
+}
+
+static void move_element_ccw(int i, int j, A2 old, void *elem, void *cl)
+{
+        (void)old;
+        struct cl *new = cl;
+        memcpy(new->at(new->array, j, new->w - i - 1), 
+               elem, 
+               new->size);
+}
+
+static void move_element_180(int i, int j, A2 old, void *elem, void *cl)
+{
+        (void)old;
+        struct cl *new = cl;
+        memcpy(new->at(new->array, new->w - i - 1, new->h - j - 1), 
+               elem, 
+               new->size);
+}
+This private function provides an array transformation parameterized by methods, an element-moving function app, and a mapping strategy map.
+
+<arotate.c>+= [<-D->]
+static A2 rotate(A2Methods_T m, A2Methods_applyfun app, Mapfun map, A2 a)
+{
+        assert(m && app && map && a);
+
+        int w = m->width(a);
+        int h = m->height(a);
+        int size = m->size(a);
+        int b = m->blocksize(a);
+        A2 new = (app == move_element_180) 
+                      ? m->new_with_blocksize(w, h, size, b)
+                      : m->new_with_blocksize(h, w, size, b);
+        struct cl info = { w, h, new, size, m->at };
+        map(a, app, &info);
+        return new;
+}
+To get array rotations, I simply instantiate the parametric array transformations with each of my rotation functions.
+
+<arotate.c>+= [<-D]
+A2 rotate_cw(A2Methods_T methods, A2 a, Mapfun map)
+{
+        return rotate(methods, move_element_cw, map, a);
+}
+
+A2 rotate_180(A2Methods_T methods, A2 a, Mapfun map)
+{
+        return rotate(methods, move_element_180, map, a);
+}
+
+A2 rotate_ccw(A2Methods_T methods, A2 a, Mapfun map)
+{
+        return rotate(methods, move_element_ccw, map, a);
+}
+<arotate.c>: D1, D2, D3, D4
+<arotate.h>: D1
+<declarations of rotation functions>: U1, D2
